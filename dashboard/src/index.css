@@ -690,6 +690,14 @@ hr {
   color: rgb(223, 73, 73);
 }
 
+.index-points.up {
+  color: rgb(103, 201, 136);
+}
+
+.index-points.down {
+  color: rgb(223, 73, 73);
+}
+
 .percent {
   font-size: 0.8rem;
   font-weight: 400;

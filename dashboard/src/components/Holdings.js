@@ -1,44 +1,70 @@
-import React , {useState , useEffect} from "react";
+import React, { useEffect, useState } from "react";
 import axios from "axios";
-import { VerticalGraph } from "./VerticalGraph";
 
-const Holdings = () => {//used to store data
+const Holdings = () => {
   const [allHoldings, setAllHoldings] = useState([]);
 
-useEffect(() => {
-  const fetchHoldings = () => {
-    axios.get("http://localhost:3002/allHoldings").then((res) =>{ //make sure server is running
-      console.log(res.data);
-      setAllHoldings(res.data);
-    });
-  };
+  useEffect(() => {
+    const fetchHoldings = async () => {
+      try {
+        const res = await axios.get("http://localhost:3002/allHoldings");
+        const holdings = res.data;
 
-  fetchHoldings();
-  window.addEventListener("portfolioUpdated", fetchHoldings);
+        if (holdings.length === 0) {
+          setAllHoldings([]);
+          return;
+        }
 
-  return () => {
-    window.removeEventListener("portfolioUpdated", fetchHoldings);
-  };
-}, []);
+        const symbols = holdings.map((holding) => holding.name);
 
-const totalInvestment = allHoldings.reduce(
-  (total, stock) => total + stock.avg * stock.qty,
-  0
-);
-const currentValue = allHoldings.reduce(
-  (total, stock) => total + stock.price * stock.qty,
-  0
-);
-const pnl = currentValue - totalInvestment;
-const pnlPercent = totalInvestment ? (pnl / totalInvestment) * 100 : 0;
-const pnlClass = pnl >= 0 ? "profit" : "loss";
+        try {
+          const priceRes = await axios.post("http://localhost:3002/api/prices", {
+            symbols,
+          });
+          const prices = priceRes.data;
+
+          const updated = holdings.map((holding) => {
+            const livePrice = prices[holding.name];
+
+            if (!livePrice) {
+              return holding;
+            }
+
+            const netPercent = ((livePrice.price - holding.avg) / holding.avg) * 100;
+
+            return {
+              ...holding,
+              price: livePrice.price,
+              day: livePrice.percent,
+              net: `${netPercent >= 0 ? "+" : ""}${netPercent.toFixed(2)}%`,
+              isLoss: netPercent < 0,
+            };
+          });
+
+          setAllHoldings(updated);
+        } catch {
+          setAllHoldings(holdings);
+        }
+      } catch (error) {
+        console.error("Failed to fetch holdings", error);
+      }
+    };
+
+    fetchHoldings();
+    const interval = setInterval(fetchHoldings, 30000);
+    window.addEventListener("portfolioUpdated", fetchHoldings);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("portfolioUpdated", fetchHoldings);
+    };
+  }, []);
 
   return (
-    <>
-      <h3 className="title">Holdings ({allHoldings.length})</h3>
-
-      <div className="order-table">
-        <table>
+    <div>
+      <h2 className="text-muted fs-4">Holdings ({allHoldings.length})</h2>
+      <table className="order-table">
+        <thead>
           <tr>
             <th>Instrument</th>
             <th>Qty.</th>
@@ -49,53 +75,31 @@ const pnlClass = pnl >= 0 ? "profit" : "loss";
             <th>Net chg.</th>
             <th>Day chg.</th>
           </tr>
-
-          { allHoldings.map((stock, index) => {
-            const curValue = stock.price * stock.qty;
-            const isProfit = curValue - stock.avg * stock.qty >= 0.0;
-            const profClass = isProfit ? "profit" : "loss";
-            const dayClass = stock.isLoss ? "loss" : "profit";
+        </thead>
+        <tbody>
+          {allHoldings.map((holding, index) => {
+            const currentValue = holding.price * holding.qty;
+            const investmentValue = holding.avg * holding.qty;
+            const pnl = currentValue - investmentValue;
+            const pnlClass = pnl >= 0 ? "profit" : "loss";
+            const dayClass = holding.day?.startsWith("-") ? "loss" : "profit";
 
             return (
-              <tr key={index}>
-                <td>{stock.name}</td>
-                <td>{stock.qty}</td>
-                <td>{stock.avg.toFixed(2)}</td>
-                <td>{stock.price.toFixed(2)}</td>
-                <td>{curValue.toFixed(2)}</td>
-                <td className={profClass}>
-                  {(curValue - stock.avg * stock.qty).toFixed(2)}
-                </td>
-                <td className={profClass}>{stock.net}</td>
-                <td className={dayClass}>{stock.day}</td>
+              <tr key={`${holding.name}-${index}`}>
+                <td>{holding.name}</td>
+                <td>{holding.qty}</td>
+                <td>{holding.avg?.toFixed(2)}</td>
+                <td>{holding.price?.toFixed(2)}</td>
+                <td>{currentValue.toFixed(2)}</td>
+                <td className={pnlClass}>{pnl.toFixed(2)}</td>
+                <td className={holding.isLoss ? "loss" : "profit"}>{holding.net}</td>
+                <td className={dayClass}>{holding.day}</td>
               </tr>
             );
           })}
-        </table>
-      </div>
-
-      <div className="row">
-        <div className="col">
-          <h5>
-            {totalInvestment.toFixed(2)}
-          </h5>
-          <p>Total investment</p>
-        </div>
-        <div className="col">
-          <h5>
-            {currentValue.toFixed(2)}
-          </h5>
-          <p>Current value</p>
-        </div>
-        <div className="col">
-          <h5 className={pnlClass}>
-            {pnl.toFixed(2)} ({pnlPercent >= 0 ? "+" : ""}{pnlPercent.toFixed(2)}%)
-          </h5>
-          <p>P&L</p>
-        </div>
-      </div>
-      <VerticalGraph holdings={allHoldings} />
-    </>
+        </tbody>
+      </table>
+    </div>
   );
 };
 
